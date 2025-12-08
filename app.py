@@ -3,6 +3,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 from functools import wraps
 from db import get_connection
 from security import hash_password, verify_password, log_action, is_strong_password
+import os
 
 app = Flask(__name__)
 app.secret_key = "supersecretkey"  # change for production
@@ -10,6 +11,7 @@ app.secret_key = "supersecretkey"  # change for production
 # ---------- HELPERS ----------
 
 def get_current_user():
+    """Return current logged-in user info from session, or None."""
     if "user_id" in session:
         return {
             "user_id": session["user_id"],
@@ -19,7 +21,9 @@ def get_current_user():
         }
     return None
 
+
 def login_required(func):
+    """Decorator: require login before accessing a route."""
     @wraps(func)
     def wrapper(*args, **kwargs):
         if "user_id" not in session:
@@ -28,7 +32,9 @@ def login_required(func):
         return func(*args, **kwargs)
     return wrapper
 
+
 def admin_required(func):
+    """Decorator: require admin role for a route."""
     @wraps(func)
     def wrapper(*args, **kwargs):
         user = get_current_user()
@@ -40,6 +46,23 @@ def admin_required(func):
 
 # ---------- INITIAL ACCOUNTS (ADMIN + USER) ----------
 
+def _extract_count_row(row):
+    """
+    Helper to safely extract COUNT(*) result from a row that may be
+    a dict (with key 'cnt') or a tuple/list with index 0.
+    """
+    if row is None:
+        return 0
+    if isinstance(row, dict):
+        # common key names: 'cnt' or 'COUNT(*)'
+        if "cnt" in row:
+            return row["cnt"]
+        # fallback: first value in dict
+        return next(iter(row.values()))
+    # tuple/list
+    return row[0]
+
+
 def create_initial_admin():
     """Create default admin and user accounts if users table is empty."""
     conn = get_connection()
@@ -47,8 +70,9 @@ def create_initial_admin():
 
     cursor.execute("SELECT COUNT(*) AS cnt FROM users")
     row = cursor.fetchone()
+    cnt = _extract_count_row(row)
 
-    if row["cnt"] == 0:
+    if cnt == 0:
         print("No users found. Creating default admin and user accounts...")
 
         # --- ADMIN ACCOUNT ---
@@ -57,10 +81,13 @@ def create_initial_admin():
         admin_full_name = "System Administrator"
         admin_hash = hash_password(admin_password)
 
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO users (username, password_hash, full_name, role)
             VALUES (%s, %s, %s, 'admin')
-        """, (admin_username, admin_hash, admin_full_name))
+            """,
+            (admin_username, admin_hash, admin_full_name),
+        )
 
         # --- USER ACCOUNT ---
         user_username = "user"
@@ -68,10 +95,13 @@ def create_initial_admin():
         user_full_name = "Standard User"
         user_hash = hash_password(user_password)
 
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO users (username, password_hash, full_name, role)
             VALUES (%s, %s, %s, 'user')
-        """, (user_username, user_hash, user_full_name))
+            """,
+            (user_username, user_hash, user_full_name),
+        )
 
         conn.commit()
 
@@ -87,13 +117,17 @@ def create_initial_admin():
 @app.route("/", methods=["GET", "POST"])
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    """Login page."""
     if request.method == "POST":
         username = request.form["username"].strip()
         password = request.form["password"].strip()
 
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username = %s AND is_active = 1", (username,))
+        cursor.execute(
+            "SELECT * FROM users WHERE username = %s AND is_active = 1",
+            (username,),
+        )
         row = cursor.fetchone()
 
         if not row:
@@ -109,7 +143,13 @@ def login():
             session["username"] = row["username"]
             session["full_name"] = row["full_name"]
             session["role"] = row["role"]
-            log_action(row["user_id"], "LOGIN", "users", row["user_id"], "User logged in")
+            log_action(
+                row["user_id"],
+                "LOGIN",
+                "users",
+                row["user_id"],
+                "User logged in",
+            )
             cursor.close()
             conn.close()
             return redirect(url_for("dashboard"))
@@ -117,14 +157,23 @@ def login():
             flash("Invalid password.", "danger")
             cursor.close()
             conn.close()
+
     return render_template("login.html")
+
 
 @app.route("/logout")
 @login_required
 def logout():
+    """Logout user and clear session."""
     user = get_current_user()
     if user:
-        log_action(user["user_id"], "LOGOUT", "users", user["user_id"], "User logged out")
+        log_action(
+            user["user_id"],
+            "LOGOUT",
+            "users",
+            user["user_id"],
+            "User logged out",
+        )
     session.clear()
     flash("Logged out.", "info")
     return redirect(url_for("login"))
@@ -134,24 +183,42 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
+    """Dashboard showing counts of products and users."""
     user = get_current_user()
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT COUNT(*) FROM products")
-    product_count = cursor.fetchone()[0]
+    product_count = 0
+    user_count = 0
 
-    cursor.execute("SELECT COUNT(*) FROM users")
-    user_count = cursor.fetchone()[0]
+    try:
+        # Count products
+        try:
+            cursor.execute("SELECT COUNT(*) AS cnt FROM products")
+            row = cursor.fetchone()
+            product_count = _extract_count_row(row)
+        except Exception as e:
+            app.logger.error(f"Error counting products: {e}")
+            product_count = 0
 
-    cursor.close()
-    conn.close()
+        # Count users
+        try:
+            cursor.execute("SELECT COUNT(*) AS cnt FROM users")
+            row = cursor.fetchone()
+            user_count = _extract_count_row(row)
+        except Exception as e:
+            app.logger.error(f"Error counting users: {e}")
+            user_count = 0
+
+    finally:
+        cursor.close()
+        conn.close()
 
     return render_template(
         "dashboard.html",
         user=user,
         product_count=product_count,
-        user_count=user_count
+        user_count=user_count,
     )
 
 # ---------- USER MANAGEMENT (ADMIN ONLY) ----------
@@ -159,6 +226,7 @@ def dashboard():
 @app.route("/users/new", methods=["GET", "POST"])
 @admin_required
 def user_new():
+    """Create a new user (admin-only)."""
     user = get_current_user()
     if request.method == "POST":
         username = request.form["username"].strip()
@@ -167,7 +235,10 @@ def user_new():
         password = request.form["password"].strip()
 
         if not is_strong_password(password):
-            flash("Weak password. Use upper+lower+digit+special and at least 8 chars.", "danger")
+            flash(
+                "Weak password. Use upper+lower+digit+special and at least 8 chars.",
+                "danger",
+            )
             return render_template("user_form.html", user=user)
 
         password_hash = hash_password(password)
@@ -182,8 +253,13 @@ def user_new():
             """
             cursor.execute(sql, (username, password_hash, full_name, role))
             conn.commit()
-            log_action(user["user_id"], "CREATE", "users", cursor.lastrowid,
-                       f"Created user {username}")
+            log_action(
+                user["user_id"],
+                "CREATE",
+                "users",
+                cursor.lastrowid,
+                f"Created user {username}",
+            )
             flash("User created successfully.", "success")
             return redirect(url_for("dashboard"))
         except Exception as e:
@@ -199,6 +275,7 @@ def user_new():
 @app.route("/products")
 @login_required
 def products_list():
+    """List all products (users can view, admin can manage)."""
     user = get_current_user()
     conn = get_connection()
     cursor = conn.cursor()
@@ -208,13 +285,17 @@ def products_list():
 
     cursor.close()
     conn.close()
-    log_action(user["user_id"], "READ", "products", None, "Viewed product list")
+    log_action(
+        user["user_id"], "READ", "products", None, "Viewed product list"
+    )
 
     return render_template("products_list.html", user=user, products=products)
+
 
 @app.route("/products/new", methods=["GET", "POST"])
 @login_required
 def product_new():
+    """Create a new product (admin-only)."""
     user = get_current_user()
     if user["role"] != "admin":
         flash("Only admin can add products.", "danger")
@@ -233,11 +314,19 @@ def product_new():
             INSERT INTO products (product_name, description, quantity, price, created_by)
             VALUES (%s, %s, %s, %s, %s)
         """
-        cursor.execute(sql, (name, desc, quantity, price, user["user_id"]))
+        cursor.execute(
+            sql, (name, desc, quantity, price, user["user_id"])
+        )
         conn.commit()
 
         new_id = cursor.lastrowid
-        log_action(user["user_id"], "CREATE", "products", new_id, f"Created product {name}")
+        log_action(
+            user["user_id"],
+            "CREATE",
+            "products",
+            new_id,
+            f"Created product {name}",
+        )
 
         cursor.close()
         conn.close()
@@ -245,11 +334,15 @@ def product_new():
         flash("Product added.", "success")
         return redirect(url_for("products_list"))
 
-    return render_template("product_form.html", user=user, mode="new", product=None)
+    return render_template(
+        "product_form.html", user=user, mode="new", product=None
+    )
+
 
 @app.route("/products/<int:product_id>/edit", methods=["GET", "POST"])
 @login_required
 def product_edit(product_id):
+    """Edit an existing product (admin-only)."""
     user = get_current_user()
     if user["role"] != "admin":
         flash("Only admin can edit products.", "danger")
@@ -271,11 +364,18 @@ def product_edit(product_id):
             WHERE product_id = %s
         """
 
-        cursor.execute(sql, (name, desc, quantity, price, product_id))
+        cursor.execute(
+            sql, (name, desc, quantity, price, product_id)
+        )
         conn.commit()
 
-        log_action(user["user_id"], "UPDATE", "products", product_id,
-                   f"Updated product {product_id}")
+        log_action(
+            user["user_id"],
+            "UPDATE",
+            "products",
+            product_id,
+            f"Updated product {product_id}",
+        )
 
         cursor.close()
         conn.close()
@@ -283,7 +383,9 @@ def product_edit(product_id):
         flash("Product updated.", "success")
         return redirect(url_for("products_list"))
 
-    cursor.execute("SELECT * FROM products WHERE product_id = %s", (product_id,))
+    cursor.execute(
+        "SELECT * FROM products WHERE product_id = %s", (product_id,)
+    )
     product = cursor.fetchone()
 
     cursor.close()
@@ -293,20 +395,31 @@ def product_edit(product_id):
         flash("Product not found.", "danger")
         return redirect(url_for("products_list"))
 
-    return render_template("product_form.html", user=user, mode="edit", product=product)
+    return render_template(
+        "product_form.html", user=user, mode="edit", product=product
+    )
+
 
 @app.route("/products/<int:product_id>/delete", methods=["POST"])
 @admin_required
 def product_delete(product_id):
+    """Delete a product (admin-only)."""
     user = get_current_user()
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute("DELETE FROM products WHERE product_id = %s", (product_id,))
+    cursor.execute(
+        "DELETE FROM products WHERE product_id = %s", (product_id,)
+    )
     conn.commit()
 
-    log_action(user["user_id"], "DELETE", "products", product_id,
-               f"Deleted product {product_id}")
+    log_action(
+        user["user_id"],
+        "DELETE",
+        "products",
+        product_id,
+        f"Deleted product {product_id}",
+    )
 
     cursor.close()
     conn.close()
@@ -321,6 +434,5 @@ if __name__ == "__main__":
     create_initial_admin()
 
     # Render provides PORT via environment; default to 10000 for local test
-    import os
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)

@@ -5,7 +5,7 @@ from db import get_connection
 from security import hash_password, verify_password, log_action, is_strong_password
 
 app = Flask(__name__)
-app.secret_key = "supersecretkey"  # palitan sa real project
+app.secret_key = "supersecretkey"  # change for production
 
 # ---------- HELPERS ----------
 
@@ -43,7 +43,7 @@ def admin_required(func):
 def create_initial_admin():
     """Create default admin and user accounts if users table is empty."""
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
 
     cursor.execute("SELECT COUNT(*) AS cnt FROM users")
     row = cursor.fetchone()
@@ -62,7 +62,7 @@ def create_initial_admin():
             VALUES (%s, %s, %s, 'admin')
         """, (admin_username, admin_hash, admin_full_name))
 
-        # --- USER ACCOUNT (view-only) ---
+        # --- USER ACCOUNT ---
         user_username = "user"
         user_password = "User@123"
         user_full_name = "Standard User"
@@ -92,7 +92,7 @@ def login():
         password = request.form["password"].strip()
 
         conn = get_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         cursor.execute("SELECT * FROM users WHERE username = %s AND is_active = 1", (username,))
         row = cursor.fetchone()
 
@@ -137,12 +137,16 @@ def dashboard():
     user = get_current_user()
     conn = get_connection()
     cursor = conn.cursor()
+
     cursor.execute("SELECT COUNT(*) FROM products")
     product_count = cursor.fetchone()[0]
+
     cursor.execute("SELECT COUNT(*) FROM users")
     user_count = cursor.fetchone()[0]
+
     cursor.close()
     conn.close()
+
     return render_template(
         "dashboard.html",
         user=user,
@@ -170,6 +174,7 @@ def user_new():
 
         conn = get_connection()
         cursor = conn.cursor()
+
         try:
             sql = """
                 INSERT INTO users (username, password_hash, full_name, role)
@@ -186,6 +191,7 @@ def user_new():
         finally:
             cursor.close()
             conn.close()
+
     return render_template("user_form.html", user=user)
 
 # ---------- PRODUCT CRUD (USER = VIEW ONLY) ----------
@@ -195,12 +201,15 @@ def user_new():
 def products_list():
     user = get_current_user()
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
+
     cursor.execute("SELECT * FROM products ORDER BY created_at DESC")
     products = cursor.fetchall()
+
     cursor.close()
     conn.close()
     log_action(user["user_id"], "READ", "products", None, "Viewed product list")
+
     return render_template("products_list.html", user=user, products=products)
 
 @app.route("/products/new", methods=["GET", "POST"])
@@ -219,16 +228,20 @@ def product_new():
 
         conn = get_connection()
         cursor = conn.cursor()
+
         sql = """
             INSERT INTO products (product_name, description, quantity, price, created_by)
             VALUES (%s, %s, %s, %s, %s)
         """
         cursor.execute(sql, (name, desc, quantity, price, user["user_id"]))
         conn.commit()
+
         new_id = cursor.lastrowid
         log_action(user["user_id"], "CREATE", "products", new_id, f"Created product {name}")
+
         cursor.close()
         conn.close()
+
         flash("Product added.", "success")
         return redirect(url_for("products_list"))
 
@@ -243,7 +256,7 @@ def product_edit(product_id):
         return redirect(url_for("products_list"))
 
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
 
     if request.method == "POST":
         name = request.form["product_name"].strip()
@@ -257,22 +270,29 @@ def product_edit(product_id):
                 price = %s, updated_at = NOW()
             WHERE product_id = %s
         """
+
         cursor.execute(sql, (name, desc, quantity, price, product_id))
         conn.commit()
+
         log_action(user["user_id"], "UPDATE", "products", product_id,
                    f"Updated product {product_id}")
+
         cursor.close()
         conn.close()
+
         flash("Product updated.", "success")
         return redirect(url_for("products_list"))
 
     cursor.execute("SELECT * FROM products WHERE product_id = %s", (product_id,))
     product = cursor.fetchone()
+
     cursor.close()
     conn.close()
+
     if not product:
         flash("Product not found.", "danger")
         return redirect(url_for("products_list"))
+
     return render_template("product_form.html", user=user, mode="edit", product=product)
 
 @app.route("/products/<int:product_id>/delete", methods=["POST"])
@@ -281,12 +301,16 @@ def product_delete(product_id):
     user = get_current_user()
     conn = get_connection()
     cursor = conn.cursor()
+
     cursor.execute("DELETE FROM products WHERE product_id = %s", (product_id,))
     conn.commit()
+
     log_action(user["user_id"], "DELETE", "products", product_id,
                f"Deleted product {product_id}")
+
     cursor.close()
     conn.close()
+
     flash("Product deleted.", "info")
     return redirect(url_for("products_list"))
 

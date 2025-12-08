@@ -1,0 +1,102 @@
+/* Make page fill the screen and keep footer at the bottom */
+html, body {
+    height: 100%;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    background-color: #f3f4f6;
+    font-size: 0.95rem;
+}
+
+/* Cards look clean and visible */
+.card {
+    border-radius: 0.9rem;
+    border: 1px solid #e1e4ea;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+}
+
+/* Buttons: brighter, more visible */
+.btn-primary {
+    background-color: #2563eb;
+    border-color: #2563eb;
+}
+.btn-primary:hover {
+    background-color: #1d4ed8;
+    border-color: #1d4ed8;
+}
+.btn-success {
+    background-color: #16a34a;
+    border-color: #16a34a;
+}
+.btn-success:hover {
+    background-color: #15803d;
+    border-color: #15803d;
+}
+
+/* Table styling for readability on all devices */
+.table {
+    font-size: 0.9rem;
+}
+.table thead th {
+    background-color: #111827 !important;
+    color: #f9fafb;
+}
+
+/* Footer styling */
+.app-footer {
+    margin-top: auto;
+    background: #111827;
+    color: #e5e7eb;
+    padding: 12px 8px;
+    text-align: center;
+    font-size: 0.85rem;
+}
+
+/* ---------- RESPONSIVE TWEAKS ---------- */
+
+/* Small screens: tighten paddings, center texts */
+@media (max-width: 576px) {
+    body {
+        font-size: 0.9rem;
+    }
+
+    .container {
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
+    }
+
+    h2, h3 {
+        font-size: 1.35rem;
+        text-align: left;
+    }
+
+    .card {
+        margin-bottom: 0.75rem;
+    }
+
+    .navbar-brand {
+        font-size: 1rem;
+    }
+
+    .table {
+        font-size: 0.8rem;
+    }
+
+    /* Allow horizontal scroll for tables on very small screens */
+    .table-responsive {
+        font-size: 0.8rem;
+    }
+}
+
+/* Medium screens (tablets) */
+@media (min-width: 577px) and (max-width: 992px) {
+    body {
+        font-size: 0.95rem;
+    }
+
+    h2, h3 {
+        font-size: 1.5rem;
+    }
+}

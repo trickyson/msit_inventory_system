@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h3 class="mb-3">Create New User</h3>
+
+<div class="card shadow-sm">
+  <div class="card-body">
+
+    <form method="post">
+
+      <div class="mb-3">
+        <label class="form-label">Username</label>
+        <input class="form-control" type="text" name="username" required>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Full Name</label>
+        <input class="form-control" type="text" name="full_name" required>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Role</label>
+        <select class="form-select" name="role">
+          <option value="user" selected>User (view-only)</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Password</label>
+        <input class="form-control" type="password" name="password" required>
+        <div class="form-text">
+          Password must contain at least 8 characters, uppercase, lowercase, digit, and special character.
+        </div>
+      </div>
+
+      <button class="btn btn-primary">Create User</button>
+      <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Cancel</a>
+
+    </form>
+
+  </div>
+</div>
+
+{% endblock %}

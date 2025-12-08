@@ -317,5 +317,10 @@ def product_delete(product_id):
 # ---------- MAIN ----------
 
 if __name__ == "__main__":
+    # Create default admin/user if table is empty
     create_initial_admin()
-    app.run(debug=True)
+
+    # Render provides PORT via environment; default to 10000 for local test
+    import os
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)

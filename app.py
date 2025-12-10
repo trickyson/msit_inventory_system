@@ -288,10 +288,10 @@ def product_new():
         conn = get_connection()
         cursor = conn.cursor()
 
-        sql = """
-            INSERT INTO products (product_name, description, quantity, price, created_by)
-            VALUES (%s, %s, %s, %s, %s)
-        """
+    sql = """
+        INSERT INTO products (name, description, quantity, price, created_by)
+        VALUES (%s, %s, %s, %s, %s)
+    """
         cursor.execute(sql, (name, desc, quantity, price, user["user_id"]))
         conn.commit()
 
@@ -331,15 +331,16 @@ def product_edit(product_id):
         quantity = int(request.form["quantity"])
         price = float(request.form["price"])
 
-        sql = """
-            UPDATE products
-            SET product_name = %s,
-                description = %s,
-                quantity = %s,
-                price = %s,
-                updated_at = NOW()
-            WHERE product_id = %s
-        """
+    sql = """
+        UPDATE products
+        SET name = %s,
+            description = %s,
+            quantity = %s,
+            price = %s,
+            updated_at = NOW()
+        WHERE product_id = %s
+    """
+
         cursor.execute(sql, (name, desc, quantity, price, product_id))
         conn.commit()
 

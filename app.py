@@ -6,22 +6,24 @@ from security import hash_password, verify_password, log_action, is_strong_passw
 import os
 
 app = Flask(__name__)
-app.secret_key = "supersecretkey"  # change for production
+app.secret_key = "supersecretkey"  # palitan sa production
 
 # ---------- HELPERS ----------
 
 def get_current_user():
+    """Return current logged-in user info from session, or None."""
     if "user_id" in session:
         return {
             "user_id": session["user_id"],
             "username": session["username"],
             "full_name": session["full_name"],
-            "role": session["role"]
+            "role": session["role"],
         }
     return None
 
 
 def login_required(func):
+    """Require login before accessing a route."""
     @wraps(func)
     def wrapper(*args, **kwargs):
         if "user_id" not in session:
@@ -32,6 +34,7 @@ def login_required(func):
 
 
 def admin_required(func):
+    """Require admin role before accessing a route."""
     @wraps(func)
     def wrapper(*args, **kwargs):
         user = get_current_user()
@@ -45,16 +48,13 @@ def admin_required(func):
 # ---------- INITIAL ACCOUNTS (ADMIN + USER) ----------
 
 def create_initial_admin():
-    """
-    Create default admin and user accounts if users table is empty.
-    """
+    """Create default admin and user accounts if users table is empty."""
     conn = get_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
 
     cursor.execute("SELECT COUNT(*) AS cnt FROM users")
-    row = cursor.fetchone()
+    row = cursor.fetchone() or {"cnt": 0}
 
-    # row is a dict because we use DictCursor in db.py
     if row["cnt"] == 0:
         print("No users found. Creating default admin and user accounts...")
 
@@ -101,12 +101,13 @@ def create_initial_admin():
 @app.route("/", methods=["GET", "POST"])
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    """Login page."""
     if request.method == "POST":
         username = request.form["username"].strip()
         password = request.form["password"].strip()
 
         conn = get_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(dictionary=True)
         cursor.execute(
             "SELECT * FROM users WHERE username = %s AND is_active = 1",
             (username,),
@@ -126,6 +127,7 @@ def login():
             session["username"] = row["username"]
             session["full_name"] = row["full_name"]
             session["role"] = row["role"]
+
             log_action(
                 row["user_id"],
                 "LOGIN",
@@ -133,6 +135,7 @@ def login():
                 row["user_id"],
                 "User logged in",
             )
+
             cursor.close()
             conn.close()
             return redirect(url_for("dashboard"))
@@ -140,12 +143,14 @@ def login():
             flash("Invalid password.", "danger")
             cursor.close()
             conn.close()
+
     return render_template("login.html")
 
 
 @app.route("/logout")
 @login_required
 def logout():
+    """Logout and clear session."""
     user = get_current_user()
     if user:
         log_action(
@@ -165,15 +170,20 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
+    """Dashboard showing simple counts."""
     user = get_current_user()
     conn = get_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
 
-    cursor.execute("SELECT COUNT(*) FROM products")
-    product_count = cursor.fetchone()[0]
+    # Product count
+    cursor.execute("SELECT COUNT(*) AS product_count FROM products")
+    row = cursor.fetchone() or {"product_count": 0}
+    product_count = row["product_count"]
 
-    cursor.execute("SELECT COUNT(*) FROM users")
-    user_count = cursor.fetchone()[0]
+    # User count
+    cursor.execute("SELECT COUNT(*) AS user_count FROM users")
+    row = cursor.fetchone() or {"user_count": 0}
+    user_count = row["user_count"]
 
     cursor.close()
     conn.close()
@@ -191,6 +201,7 @@ def dashboard():
 @app.route("/users/new", methods=["GET", "POST"])
 @admin_required
 def user_new():
+    """Create a new user (admin only)."""
     user = get_current_user()
     if request.method == "POST":
         username = request.form["username"].strip()
@@ -208,7 +219,7 @@ def user_new():
         password_hash = hash_password(password)
 
         conn = get_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(dictionary=True)
 
         try:
             sql = """
@@ -217,6 +228,7 @@ def user_new():
             """
             cursor.execute(sql, (username, password_hash, full_name, role))
             conn.commit()
+
             log_action(
                 user["user_id"],
                 "CREATE",
@@ -224,6 +236,7 @@ def user_new():
                 cursor.lastrowid,
                 f"Created user {username}",
             )
+
             flash("User created successfully.", "success")
             return redirect(url_for("dashboard"))
         except Exception as e:
@@ -240,30 +253,17 @@ def user_new():
 @app.route("/products")
 @login_required
 def products_list():
+    """List products. User can only view, admin can manage."""
     user = get_current_user()
     conn = get_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
 
-    # DB columns are id + name, we alias them to product_id/product_name
-    cursor.execute(
-        """
-        SELECT
-            id   AS product_id,
-            name AS product_name,
-            description,
-            quantity,
-            price,
-            created_by,
-            created_at,
-            updated_at
-        FROM products
-        ORDER BY created_at DESC
-        """
-    )
+    cursor.execute("SELECT * FROM products ORDER BY created_at DESC")
     products = cursor.fetchall()
 
     cursor.close()
     conn.close()
+
     log_action(user["user_id"], "READ", "products", None, "Viewed product list")
 
     return render_template("products_list.html", user=user, products=products)
@@ -272,6 +272,7 @@ def products_list():
 @app.route("/products/new", methods=["GET", "POST"])
 @login_required
 def product_new():
+    """Create a new product (admin only)."""
     user = get_current_user()
     if user["role"] != "admin":
         flash("Only admin can add products.", "danger")
@@ -284,10 +285,10 @@ def product_new():
         price = float(request.form["price"])
 
         conn = get_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(dictionary=True)
 
         sql = """
-            INSERT INTO products (name, description, quantity, price, created_by)
+            INSERT INTO products (product_name, description, quantity, price, created_by)
             VALUES (%s, %s, %s, %s, %s)
         """
         cursor.execute(sql, (name, desc, quantity, price, user["user_id"]))
@@ -314,13 +315,14 @@ def product_new():
 @app.route("/products/<int:product_id>/edit", methods=["GET", "POST"])
 @login_required
 def product_edit(product_id):
+    """Edit existing product (admin only)."""
     user = get_current_user()
     if user["role"] != "admin":
         flash("Only admin can edit products.", "danger")
         return redirect(url_for("products_list"))
 
     conn = get_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
 
     if request.method == "POST":
         name = request.form["product_name"].strip()
@@ -330,14 +332,13 @@ def product_edit(product_id):
 
         sql = """
             UPDATE products
-            SET name = %s,
+            SET product_name = %s,
                 description = %s,
                 quantity = %s,
                 price = %s,
                 updated_at = NOW()
-            WHERE id = %s
+            WHERE product_id = %s
         """
-
         cursor.execute(sql, (name, desc, quantity, price, product_id))
         conn.commit()
 
@@ -355,23 +356,7 @@ def product_edit(product_id):
         flash("Product updated.", "success")
         return redirect(url_for("products_list"))
 
-    # GET: load product (alias id/name again)
-    cursor.execute(
-        """
-        SELECT
-            id   AS product_id,
-            name AS product_name,
-            description,
-            quantity,
-            price,
-            created_by,
-            created_at,
-            updated_at
-        FROM products
-        WHERE id = %s
-        """,
-        (product_id,),
-    )
+    cursor.execute("SELECT * FROM products WHERE product_id = %s", (product_id,))
     product = cursor.fetchone()
 
     cursor.close()
@@ -387,11 +372,12 @@ def product_edit(product_id):
 @app.route("/products/<int:product_id>/delete", methods=["POST"])
 @admin_required
 def product_delete(product_id):
+    """Delete a product (admin only)."""
     user = get_current_user()
     conn = get_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
 
-    cursor.execute("DELETE FROM products WHERE id = %s", (product_id,))
+    cursor.execute("DELETE FROM products WHERE product_id = %s", (product_id,))
     conn.commit()
 
     log_action(

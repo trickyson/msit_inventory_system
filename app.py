@@ -11,7 +11,6 @@ app.secret_key = "supersecretkey"  # change for production
 # ---------- HELPERS ----------
 
 def get_current_user():
-    """Return current logged-in user info from session, or None."""
     if "user_id" in session:
         return {
             "user_id": session["user_id"],
@@ -23,7 +22,6 @@ def get_current_user():
 
 
 def login_required(func):
-    """Decorator: require login before accessing a route."""
     @wraps(func)
     def wrapper(*args, **kwargs):
         if "user_id" not in session:
@@ -34,7 +32,6 @@ def login_required(func):
 
 
 def admin_required(func):
-    """Decorator: require admin role for a route."""
     @wraps(func)
     def wrapper(*args, **kwargs):
         user = get_current_user()
@@ -44,35 +41,21 @@ def admin_required(func):
         return func(*args, **kwargs)
     return wrapper
 
+
 # ---------- INITIAL ACCOUNTS (ADMIN + USER) ----------
 
-def _extract_count_row(row):
-    """
-    Helper to safely extract COUNT(*) result from a row that may be
-    a dict (with key 'cnt') or a tuple/list with index 0.
-    """
-    if row is None:
-        return 0
-    if isinstance(row, dict):
-        # common key names: 'cnt' or 'COUNT(*)'
-        if "cnt" in row:
-            return row["cnt"]
-        # fallback: first value in dict
-        return next(iter(row.values()))
-    # tuple/list
-    return row[0]
-
-
 def create_initial_admin():
-    """Create default admin and user accounts if users table is empty."""
+    """
+    Create default admin and user accounts if users table is empty.
+    """
     conn = get_connection()
     cursor = conn.cursor()
 
     cursor.execute("SELECT COUNT(*) AS cnt FROM users")
     row = cursor.fetchone()
-    cnt = _extract_count_row(row)
 
-    if cnt == 0:
+    # row is a dict because we use DictCursor in db.py
+    if row["cnt"] == 0:
         print("No users found. Creating default admin and user accounts...")
 
         # --- ADMIN ACCOUNT ---
@@ -112,12 +95,12 @@ def create_initial_admin():
     cursor.close()
     conn.close()
 
+
 # ---------- AUTH ROUTES ----------
 
 @app.route("/", methods=["GET", "POST"])
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    """Login page."""
     if request.method == "POST":
         username = request.form["username"].strip()
         password = request.form["password"].strip()
@@ -157,14 +140,12 @@ def login():
             flash("Invalid password.", "danger")
             cursor.close()
             conn.close()
-
     return render_template("login.html")
 
 
 @app.route("/logout")
 @login_required
 def logout():
-    """Logout user and clear session."""
     user = get_current_user()
     if user:
         log_action(
@@ -178,41 +159,24 @@ def logout():
     flash("Logged out.", "info")
     return redirect(url_for("login"))
 
+
 # ---------- DASHBOARD ----------
 
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    """Dashboard showing counts of products and users."""
     user = get_current_user()
     conn = get_connection()
     cursor = conn.cursor()
 
-    product_count = 0
-    user_count = 0
+    cursor.execute("SELECT COUNT(*) FROM products")
+    product_count = cursor.fetchone()[0]
 
-    try:
-        # Count products
-        try:
-            cursor.execute("SELECT COUNT(*) AS cnt FROM products")
-            row = cursor.fetchone()
-            product_count = _extract_count_row(row)
-        except Exception as e:
-            app.logger.error(f"Error counting products: {e}")
-            product_count = 0
+    cursor.execute("SELECT COUNT(*) FROM users")
+    user_count = cursor.fetchone()[0]
 
-        # Count users
-        try:
-            cursor.execute("SELECT COUNT(*) AS cnt FROM users")
-            row = cursor.fetchone()
-            user_count = _extract_count_row(row)
-        except Exception as e:
-            app.logger.error(f"Error counting users: {e}")
-            user_count = 0
-
-    finally:
-        cursor.close()
-        conn.close()
+    cursor.close()
+    conn.close()
 
     return render_template(
         "dashboard.html",
@@ -221,12 +185,12 @@ def dashboard():
         user_count=user_count,
     )
 
+
 # ---------- USER MANAGEMENT (ADMIN ONLY) ----------
 
 @app.route("/users/new", methods=["GET", "POST"])
 @admin_required
 def user_new():
-    """Create a new user (admin-only)."""
     user = get_current_user()
     if request.method == "POST":
         username = request.form["username"].strip()
@@ -270,24 +234,37 @@ def user_new():
 
     return render_template("user_form.html", user=user)
 
+
 # ---------- PRODUCT CRUD (USER = VIEW ONLY) ----------
 
 @app.route("/products")
 @login_required
 def products_list():
-    """List all products (users can view, admin can manage)."""
     user = get_current_user()
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM products ORDER BY created_at DESC")
+    # DB columns are id + name, we alias them to product_id/product_name
+    cursor.execute(
+        """
+        SELECT
+            id   AS product_id,
+            name AS product_name,
+            description,
+            quantity,
+            price,
+            created_by,
+            created_at,
+            updated_at
+        FROM products
+        ORDER BY created_at DESC
+        """
+    )
     products = cursor.fetchall()
 
     cursor.close()
     conn.close()
-    log_action(
-        user["user_id"], "READ", "products", None, "Viewed product list"
-    )
+    log_action(user["user_id"], "READ", "products", None, "Viewed product list")
 
     return render_template("products_list.html", user=user, products=products)
 
@@ -295,7 +272,6 @@ def products_list():
 @app.route("/products/new", methods=["GET", "POST"])
 @login_required
 def product_new():
-    """Create a new product (admin-only)."""
     user = get_current_user()
     if user["role"] != "admin":
         flash("Only admin can add products.", "danger")
@@ -311,12 +287,10 @@ def product_new():
         cursor = conn.cursor()
 
         sql = """
-            INSERT INTO products (product_name, description, quantity, price, created_by)
+            INSERT INTO products (name, description, quantity, price, created_by)
             VALUES (%s, %s, %s, %s, %s)
         """
-        cursor.execute(
-            sql, (name, desc, quantity, price, user["user_id"])
-        )
+        cursor.execute(sql, (name, desc, quantity, price, user["user_id"]))
         conn.commit()
 
         new_id = cursor.lastrowid
@@ -334,15 +308,12 @@ def product_new():
         flash("Product added.", "success")
         return redirect(url_for("products_list"))
 
-    return render_template(
-        "product_form.html", user=user, mode="new", product=None
-    )
+    return render_template("product_form.html", user=user, mode="new", product=None)
 
 
 @app.route("/products/<int:product_id>/edit", methods=["GET", "POST"])
 @login_required
 def product_edit(product_id):
-    """Edit an existing product (admin-only)."""
     user = get_current_user()
     if user["role"] != "admin":
         flash("Only admin can edit products.", "danger")
@@ -359,14 +330,15 @@ def product_edit(product_id):
 
         sql = """
             UPDATE products
-            SET product_name = %s, description = %s, quantity = %s,
-                price = %s, updated_at = NOW()
-            WHERE product_id = %s
+            SET name = %s,
+                description = %s,
+                quantity = %s,
+                price = %s,
+                updated_at = NOW()
+            WHERE id = %s
         """
 
-        cursor.execute(
-            sql, (name, desc, quantity, price, product_id)
-        )
+        cursor.execute(sql, (name, desc, quantity, price, product_id))
         conn.commit()
 
         log_action(
@@ -383,8 +355,22 @@ def product_edit(product_id):
         flash("Product updated.", "success")
         return redirect(url_for("products_list"))
 
+    # GET: load product (alias id/name again)
     cursor.execute(
-        "SELECT * FROM products WHERE product_id = %s", (product_id,)
+        """
+        SELECT
+            id   AS product_id,
+            name AS product_name,
+            description,
+            quantity,
+            price,
+            created_by,
+            created_at,
+            updated_at
+        FROM products
+        WHERE id = %s
+        """,
+        (product_id,),
     )
     product = cursor.fetchone()
 
@@ -395,22 +381,17 @@ def product_edit(product_id):
         flash("Product not found.", "danger")
         return redirect(url_for("products_list"))
 
-    return render_template(
-        "product_form.html", user=user, mode="edit", product=product
-    )
+    return render_template("product_form.html", user=user, mode="edit", product=product)
 
 
 @app.route("/products/<int:product_id>/delete", methods=["POST"])
 @admin_required
 def product_delete(product_id):
-    """Delete a product (admin-only)."""
     user = get_current_user()
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute(
-        "DELETE FROM products WHERE product_id = %s", (product_id,)
-    )
+    cursor.execute("DELETE FROM products WHERE id = %s", (product_id,))
     conn.commit()
 
     log_action(
@@ -426,6 +407,7 @@ def product_delete(product_id):
 
     flash("Product deleted.", "info")
     return redirect(url_for("products_list"))
+
 
 # ---------- MAIN ----------
 

@@ -6,7 +6,7 @@ from security import hash_password, verify_password, log_action, is_strong_passw
 import os
 
 app = Flask(__name__)
-app.secret_key = "supersecretkey"  # palitan sa production
+app.secret_key = "supersecretkey"  # change for production
 
 # ---------- HELPERS ----------
 
@@ -50,11 +50,12 @@ def admin_required(func):
 def create_initial_admin():
     """Create default admin and user accounts if users table is empty."""
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
 
     cursor.execute("SELECT COUNT(*) AS cnt FROM users")
-    row = cursor.fetchone() or {"cnt": 0}
+    row = cursor.fetchone()
 
+    # row is dict because of DictCursor in db.py
     if row["cnt"] == 0:
         print("No users found. Creating default admin and user accounts...")
 
@@ -107,7 +108,7 @@ def login():
         password = request.form["password"].strip()
 
         conn = get_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         cursor.execute(
             "SELECT * FROM users WHERE username = %s AND is_active = 1",
             (username,),
@@ -173,16 +174,16 @@ def dashboard():
     """Dashboard showing simple counts."""
     user = get_current_user()
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
 
     # Product count
     cursor.execute("SELECT COUNT(*) AS product_count FROM products")
-    row = cursor.fetchone() or {"product_count": 0}
+    row = cursor.fetchone()
     product_count = row["product_count"]
 
     # User count
     cursor.execute("SELECT COUNT(*) AS user_count FROM users")
-    row = cursor.fetchone() or {"user_count": 0}
+    row = cursor.fetchone()
     user_count = row["user_count"]
 
     cursor.close()
@@ -219,7 +220,7 @@ def user_new():
         password_hash = hash_password(password)
 
         conn = get_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
         try:
             sql = """
@@ -256,7 +257,7 @@ def products_list():
     """List products. User can only view, admin can manage."""
     user = get_current_user()
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
 
     cursor.execute("SELECT * FROM products ORDER BY created_at DESC")
     products = cursor.fetchall()
@@ -285,7 +286,7 @@ def product_new():
         price = float(request.form["price"])
 
         conn = get_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
 
         sql = """
             INSERT INTO products (product_name, description, quantity, price, created_by)
@@ -322,7 +323,7 @@ def product_edit(product_id):
         return redirect(url_for("products_list"))
 
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
 
     if request.method == "POST":
         name = request.form["product_name"].strip()
@@ -375,7 +376,7 @@ def product_delete(product_id):
     """Delete a product (admin only)."""
     user = get_current_user()
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
 
     cursor.execute("DELETE FROM products WHERE product_id = %s", (product_id,))
     conn.commit()

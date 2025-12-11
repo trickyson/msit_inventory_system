@@ -273,7 +273,6 @@ def products_list():
 @app.route("/products/new", methods=["GET", "POST"])
 @login_required
 def product_new():
-    """Create a new product (admin only)."""
     user = get_current_user()
     if user["role"] != "admin":
         flash("Only admin can add products.", "danger")
@@ -288,21 +287,15 @@ def product_new():
         conn = get_connection()
         cursor = conn.cursor()
 
-    sql = """
-        INSERT INTO products (name, description, quantity, price, created_by)
-        VALUES (%s, %s, %s, %s, %s)
-    """
+        sql = """
+            INSERT INTO products (name, description, quantity, price, created_by)
+            VALUES (%s, %s, %s, %s, %s)
+        """
         cursor.execute(sql, (name, desc, quantity, price, user["user_id"]))
         conn.commit()
 
         new_id = cursor.lastrowid
-        log_action(
-            user["user_id"],
-            "CREATE",
-            "products",
-            new_id,
-            f"Created product {name}",
-        )
+        log_action(user["user_id"], "CREATE", "products", new_id, f"Created product {name}")
 
         cursor.close()
         conn.close()
@@ -311,7 +304,6 @@ def product_new():
         return redirect(url_for("products_list"))
 
     return render_template("product_form.html", user=user, mode="new", product=None)
-
 
 @app.route("/products/<int:product_id>/edit", methods=["GET", "POST"])
 @login_required

@@ -39,11 +39,13 @@
 
                     {% if user.role == 'admin' %}
                     <td class="text-center">
+                        <!-- EDIT BUTTON -->
                         <a href="{{ url_for('product_edit', product_id=p.id) }}"
                            class="btn btn-sm btn-outline-secondary">
                             Edit
                         </a>
 
+                        <!-- DELETE BUTTON -->
                         <form action="{{ url_for('product_delete', product_id=p.id) }}"
                               method="post"
                               class="d-inline"
@@ -62,7 +64,10 @@
     </div>
     {% else %}
     <div class="alert alert-info">
-        No products found. {% if user.role == 'admin' %}Click “Add Product” to create one.{% endif %}
+        No products found.
+        {% if user.role == 'admin' %}
+        Click “Add Product” to create one.
+        {% endif %}
     </div>
     {% endif %}
 </div>

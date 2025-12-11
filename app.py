@@ -289,11 +289,12 @@ def product_new():
         conn = get_connection()
         cursor = conn.cursor()
 
+        # WALANG created_by dito kasi wala sa table
         sql = """
-            INSERT INTO products (name, description, quantity, price, created_by)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO products (name, description, quantity, price)
+            VALUES (%s, %s, %s, %s)
         """
-        cursor.execute(sql, (name, desc, quantity, price, user["user_id"]))
+        cursor.execute(sql, (name, desc, quantity, price))
         conn.commit()
 
         new_id = cursor.lastrowid

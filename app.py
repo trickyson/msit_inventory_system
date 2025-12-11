@@ -54,7 +54,6 @@ def create_initial_admin():
     cursor.execute("SELECT COUNT(*) AS cnt FROM users")
     row = cursor.fetchone()
 
-    # row is dict because of DictCursor in db.py
     if row["cnt"] == 0:
         print("No users found. Creating default admin and user accounts...")
 
@@ -173,11 +172,15 @@ def dashboard():
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT COUNT(*) FROM products")
-    product_count = cursor.fetchone()[0]
+    # products count
+    cursor.execute("SELECT COUNT(*) AS cnt FROM products")
+    row = cursor.fetchone()
+    product_count = row["cnt"]
 
-    cursor.execute("SELECT COUNT(*) FROM users")
-    user_count = cursor.fetchone()[0]
+    # users count
+    cursor.execute("SELECT COUNT(*) AS cnt FROM users")
+    row = cursor.fetchone()
+    user_count = row["cnt"]
 
     cursor.close()
     conn.close()

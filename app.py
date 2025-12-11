@@ -11,7 +11,6 @@ app.secret_key = "supersecretkey"  # change for production
 # ---------- HELPERS ----------
 
 def get_current_user():
-    """Return current logged-in user info from session, or None."""
     if "user_id" in session:
         return {
             "user_id": session["user_id"],
@@ -23,18 +22,17 @@ def get_current_user():
 
 
 def login_required(func):
-    """Require login before accessing a route."""
     @wraps(func)
     def wrapper(*args, **kwargs):
         if "user_id" not in session:
             flash("Please log in first.", "warning")
             return redirect(url_for("login"))
         return func(*args, **kwargs)
+
     return wrapper
 
 
 def admin_required(func):
-    """Require admin role before accessing a route."""
     @wraps(func)
     def wrapper(*args, **kwargs):
         user = get_current_user()
@@ -42,6 +40,7 @@ def admin_required(func):
             flash("Admin only.", "danger")
             return redirect(url_for("dashboard"))
         return func(*args, **kwargs)
+
     return wrapper
 
 
@@ -73,7 +72,7 @@ def create_initial_admin():
             (admin_username, admin_hash, admin_full_name),
         )
 
-        # --- USER ACCOUNT ---
+        # --- USER ACCOUNT (view-only) ---
         user_username = "user"
         user_password = "User@123"
         user_full_name = "Standard User"
@@ -102,7 +101,6 @@ def create_initial_admin():
 @app.route("/", methods=["GET", "POST"])
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    """Login page."""
     if request.method == "POST":
         username = request.form["username"].strip()
         password = request.form["password"].strip()
@@ -151,7 +149,6 @@ def login():
 @app.route("/logout")
 @login_required
 def logout():
-    """Logout and clear session."""
     user = get_current_user()
     if user:
         log_action(
@@ -161,6 +158,7 @@ def logout():
             user["user_id"],
             "User logged out",
         )
+
     session.clear()
     flash("Logged out.", "info")
     return redirect(url_for("login"))
@@ -171,20 +169,15 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    """Dashboard showing simple counts."""
     user = get_current_user()
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Product count
-    cursor.execute("SELECT COUNT(*) AS product_count FROM products")
-    row = cursor.fetchone()
-    product_count = row["product_count"]
+    cursor.execute("SELECT COUNT(*) FROM products")
+    product_count = cursor.fetchone()[0]
 
-    # User count
-    cursor.execute("SELECT COUNT(*) AS user_count FROM users")
-    row = cursor.fetchone()
-    user_count = row["user_count"]
+    cursor.execute("SELECT COUNT(*) FROM users")
+    user_count = cursor.fetchone()[0]
 
     cursor.close()
     conn.close()
@@ -202,8 +195,8 @@ def dashboard():
 @app.route("/users/new", methods=["GET", "POST"])
 @admin_required
 def user_new():
-    """Create a new user (admin only)."""
     user = get_current_user()
+
     if request.method == "POST":
         username = request.form["username"].strip()
         full_name = request.form["full_name"].strip()
@@ -254,7 +247,6 @@ def user_new():
 @app.route("/products")
 @login_required
 def products_list():
-    """List products. User can only view, admin can manage."""
     user = get_current_user()
     conn = get_connection()
     cursor = conn.cursor()
@@ -265,7 +257,13 @@ def products_list():
     cursor.close()
     conn.close()
 
-    log_action(user["user_id"], "READ", "products", None, "Viewed product list")
+    log_action(
+        user["user_id"],
+        "READ",
+        "products",
+        None,
+        "Viewed product list",
+    )
 
     return render_template("products_list.html", user=user, products=products)
 
@@ -274,6 +272,7 @@ def products_list():
 @login_required
 def product_new():
     user = get_current_user()
+
     if user["role"] != "admin":
         flash("Only admin can add products.", "danger")
         return redirect(url_for("products_list"))
@@ -295,7 +294,13 @@ def product_new():
         conn.commit()
 
         new_id = cursor.lastrowid
-        log_action(user["user_id"], "CREATE", "products", new_id, f"Created product {name}")
+        log_action(
+            user["user_id"],
+            "CREATE",
+            "products",
+            new_id,
+            f"Created product {name}",
+        )
 
         cursor.close()
         conn.close()
@@ -305,11 +310,12 @@ def product_new():
 
     return render_template("product_form.html", user=user, mode="new", product=None)
 
+
 @app.route("/products/<int:product_id>/edit", methods=["GET", "POST"])
 @login_required
 def product_edit(product_id):
-    """Edit existing product (admin only)."""
     user = get_current_user()
+
     if user["role"] != "admin":
         flash("Only admin can edit products.", "danger")
         return redirect(url_for("products_list"))
@@ -323,16 +329,15 @@ def product_edit(product_id):
         quantity = int(request.form["quantity"])
         price = float(request.form["price"])
 
-    sql = """
-        UPDATE products
-        SET name = %s,
-            description = %s,
-            quantity = %s,
-            price = %s,
-            updated_at = NOW()
-        WHERE product_id = %s
-    """
-
+        sql = """
+            UPDATE products
+            SET name = %s,
+                description = %s,
+                quantity = %s,
+                price = %s,
+                updated_at = NOW()
+            WHERE id = %s
+        """
         cursor.execute(sql, (name, desc, quantity, price, product_id))
         conn.commit()
 
@@ -350,7 +355,7 @@ def product_edit(product_id):
         flash("Product updated.", "success")
         return redirect(url_for("products_list"))
 
-    cursor.execute("SELECT * FROM products WHERE product_id = %s", (product_id,))
+    cursor.execute("SELECT * FROM products WHERE id = %s", (product_id,))
     product = cursor.fetchone()
 
     cursor.close()
@@ -360,18 +365,22 @@ def product_edit(product_id):
         flash("Product not found.", "danger")
         return redirect(url_for("products_list"))
 
-    return render_template("product_form.html", user=user, mode="edit", product=product)
+    return render_template(
+        "product_form.html",
+        user=user,
+        mode="edit",
+        product=product,
+    )
 
 
 @app.route("/products/<int:product_id>/delete", methods=["POST"])
 @admin_required
 def product_delete(product_id):
-    """Delete a product (admin only)."""
     user = get_current_user()
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute("DELETE FROM products WHERE product_id = %s", (product_id,))
+    cursor.execute("DELETE FROM products WHERE id = %s", (product_id,))
     conn.commit()
 
     log_action(
@@ -395,6 +404,6 @@ if __name__ == "__main__":
     # Create default admin/user if table is empty
     create_initial_admin()
 
-    # Render provides PORT via environment; default to 10000 for local test
+    # Render provides PORT via environment; default to 10000 for local dev
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
